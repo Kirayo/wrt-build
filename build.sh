@@ -256,6 +256,7 @@ resolve_config_fragments() {
 }
 
 print_config_fragment_summary() {
+    echo ""
     echo "Config fragments:"
     echo "  Device: $DEVICE"
     echo "  Enabled fragments: $(join_fragments "${CONFIG_FRAGMENTS[@]}")"
@@ -364,6 +365,7 @@ assemble_config() {
     echo " [INFO] 基础与片段配置文件合并完成，合并后原始数据如下:"
     echo "=================================================="
     cat "$config_path"
+    echo ""
     echo "=================================================="
 }
 
