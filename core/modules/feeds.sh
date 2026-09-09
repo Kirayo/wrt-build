@@ -8,7 +8,7 @@ get_feeds_path() {
     printf '%s\n' "$feeds_path"
 }
 
-append_feed_if_missing() {
+append_feed() {
     local feeds_path="$1"
     local match_pattern="$2"
     local feed_entry="$3"
@@ -20,23 +20,27 @@ append_feed_if_missing() {
 }
 
 update_feeds() {
-    # local FEEDS_PATH
-    # FEEDS_PATH=$(get_feeds_path)
+
     # # 调试
-    # echo "FEEDS_PATH : $FEEDS_PATH"
-    # sed -i '/^#/d' "$FEEDS_PATH"
+
     # sed -i '/packages_ext/d' "$FEEDS_PATH"
     # sed -i '/[[:space:]]small8[[:space:]]/d' "$FEEDS_PATH"
-    # sed -i '/[[:space:]]custom_feed[[:space:]]/d' "$FEEDS_PATH"
 
-    # append_feed_if_missing "$FEEDS_PATH" "openwrt_bandix" "src-git openwrt_bandix https://github.com/timsaya/openwrt-bandix.git;main"
-    # append_feed_if_missing "$FEEDS_PATH" "luci_app_bandix" "src-git luci_app_bandix https://github.com/timsaya/luci-app-bandix.git;main"
+    # append_feed "$FEEDS_PATH" "openwrt_bandix" "src-git openwrt_bandix https://github.com/timsaya/openwrt-bandix.git;main"
+    # append_feed "$FEEDS_PATH" "luci_app_bandix" "src-git luci_app_bandix https://github.com/timsaya/luci-app-bandix.git;main"
 
     # if [ ! -f "$BUILD_PATH/include/bpf.mk" ]; then
     #     touch "$BUILD_PATH/include/bpf.mk"
     # fi
 
     echo "正在更新 feeds 配置与索引..."
+    # local FEEDS_PATH
+    FEEDS_PATH=$(get_feeds_path)
+    echo "FEEDS_PATH : $FEEDS_PATH"
+    sed -i '/^#/d' "$FEEDS_PATH"
+    sed -i '/[[:space:]]custom_feed[[:space:]]/d' "$FEEDS_PATH"
+
+    append_feed "$FEEDS_PATH" "kenzo" "src-git kenzo https://github.com/kenzok8/openwrt-packages"
 
     # 确保切换到正确的源码根目录
     cd "${BUILD_PATH:-.}" || return 1
