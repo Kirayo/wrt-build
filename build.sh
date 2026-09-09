@@ -290,46 +290,36 @@ remove_uhttpd_dependency() {
 }
 
 apply_repo_modifications() {
-    local target_script="$BUILD_PATH/package/emortal/default-settings/files/99-default-settings-chinese"
+    # 1. 动态确定基准路径（优先使用 $BUILD_PATH，若未定义则自动使用当前目录 .）
+    local base_path="${BUILD_PATH:-.}"
+    local target_script="$base_path/package/emortal/default-settings/files/99-default-settings-chinese"
 
     if [ -f "$target_script" ]; then
-        echo "正在注入 99-default-settings-chinese 源删改逻辑..."
+        echo "====> 正在修改 $target_script <===="
 
-        # 1. 如果脚本里有 exit 0，先把它删掉（防止追加的代码不执行）
-        sed -i '/exit 0/d' "$target_script"
+        # 2. 清理原脚本末尾的 exit 0（防止追加代码被跳过）
+        sed -i '/^exit 0/d' "$target_script"
 
-        # 2. 直接追加干净的删改逻辑（不依赖转义，绝对安全）
+        # 3. 追加干净的修剪逻辑（使用 EOF 保持代码格式完整，内部复用 repo_file 变量）
         cat << 'EOF' >> "$target_script"
 
-# --- 自定义 APK/OPKG 软件源删改逻辑 ---
-fix_user_repositories() {
-    # 处理 apk 源
-    if [ -f /etc/apk/repositories ]; then
-        sed -i '/nss_packages/d' /etc/apk/repositories
-        sed -i '/sqm_scripts_nss/d' /etc/apk/repositories
-        sed -i '/\/video/s|https://[^/]*/|https://mirror.sjtu.edu.cn/|g' /etc/apk/repositories
+# --- 自定义软件源修剪与镜像替换逻辑 (兼容 APK & OPKG) ---
+for repo_file in "/etc/apk/repositories.d/distfeeds.list" "/etc/apk/repositories" "/etc/opkg/distfeeds.conf"; do
+    if [ -f "$repo_file" ]; then
+        # 剔除 NSS 冲突包源
+        sed -i '/nss_packages/d' "$repo_file"
+        sed -i '/sqm_scripts_nss/d' "$repo_file"
+
+        # 替换特定 video 镜像源地址为交大源
+        sed -i '/\/video/s|https://[^/]*/|https://mirror.sjtu.edu.cn/|g' "$repo_file"
     fi
-
-    # 处理 opkg 源
-    if [ -f /etc/opkg/distfeeds.conf ]; then
-        sed -i '/nss_packages/d' /etc/opkg/distfeeds.conf
-        sed -i '/sqm_scripts_nss/d' /etc/opkg/distfeeds.conf
-        sed -i '/\/video/s|https://[^/]*/|https://mirror.sjtu.edu.cn/|g' /etc/opkg/distfeeds.conf
-    fi
-}
-
-# 立即执行一次
-fix_user_repositories
-
-# 防止上游逻辑异步生成文件导致没截获到，延迟 2 秒在后台再补刀执行一次
-(sleep 2 && fix_user_repositories) &
+done
 
 exit 0
 EOF
-
-        echo "修改完成！"
+        echo "====> 修改完成！已成功注入修剪逻辑 <===="
     else
-        echo "警告: 未找到 $target_script，跳过源修改。"
+        echo "====> 警告: 未找到文件 $target_script，跳过修改 <===="
     fi
 }
 
