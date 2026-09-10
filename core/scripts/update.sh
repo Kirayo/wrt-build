@@ -84,7 +84,7 @@ stage_feed_source_cleanup() {
 stage_custom_feed_prepare() {
     # custom_feed 以 src-link 加入 feeds，仍属于 install 前阶段。
     # install_custom_feed
-    :
+    update_adguardhome
 }
 
 stage_pre_install_source_fixes() {
