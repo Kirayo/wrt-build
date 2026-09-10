@@ -79,18 +79,17 @@ GitHub Actions 的手动构建提供模式选择
 3. `core/deconfig/fragments/<name>.config` 中的有效配置片段
 
 默认片段由 `compilecfg/*.ini` 的 `CONFIG_FRAGMENTS` 指定：
-- 添加对 IPQ60xx 设备移除 wifi 和 usb 的配置片段`no-wifi` ，`no-usb`，zn-m2默认包含
-- IPQ60xx / IPQ807x 设备默认包含 `nss`，添加 nss 驱动支持。
+- 移除 wifi 和 usb 的配置片段 `no-wifi` ，`no-usb`，zn-m2 默认包含
+- 配置片段 `nss`，添加 nss 驱动支持。
 
 ## 7. 三方插件
 
-三方插件主要通过 feeds 机制加入，其中 small-package 源自：
+三方插件主要通过 feeds 机制加入，使用的第三方源：
 
 ```text
-https://github.com/kenzok8/small-package.git
+https://github.com/kenzok8/openwrt-packages
 ```
 
-相关增删和同步逻辑位于 `core/update.sh` 编排的 `core/modules/` 静态阶段。配置片段只选择 Kconfig，不负责 clone 仓库、修改 feeds 或安装 feeds。
 
 ## 8. 项目结构说明
 
