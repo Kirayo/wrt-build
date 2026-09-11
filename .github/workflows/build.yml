@@ -22,6 +22,8 @@ on:
       - "core/compilecfg/**"
       - "core/deconfig/**"
       - "!core/deconfig/fragments/**"
+      - "core/feeds/overrides.conf"
+      - "core/scripts/**"
       - "build.sh"
 
 concurrency:
