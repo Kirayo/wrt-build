@@ -48,7 +48,7 @@ update_feeds() {
     # append_feed "$FEEDS_PATH" "openwrt_bandix" "src-git openwrt_bandix https://github.com/timsaya/openwrt-bandix.git;main"
     # append_feed "$FEEDS_PATH" "luci_app_bandix" "src-git luci_app_bandix https://github.com/timsaya/luci-app-bandix.git;main"
     append_feed "$FEEDS_PATH" "kenzo" "src-git kenzo https://github.com/kenzok8/openwrt-packages.git"
-    append_feed "$FEEDS_PATH" "stevenjoezhang/luci-app-adguardhome" "src-git stevenjoezhang/luci-app-adguardhome https://github.com/stevenjoezhang/luci-app-adguardhome/tree/dev"
+    append_feed "$FEEDS_PATH" "stevenjoezhang" "src-git stevenjoezhang https://github.com/stevenjoezhang/luci-app-adguardhome/tree/dev"
 
     # 确保切换到正确的源码根目录
     cd "${BUILD_PATH:-.}" || return 1
