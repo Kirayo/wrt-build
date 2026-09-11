@@ -431,15 +431,6 @@ process_overrides_config() {
     # 3. 屏蔽 Feed 导出到固件的 opkg/apk 软件源列表
     disable_feed_export "$build_path" "${unique_feeds[@]}"
 
-    # 4. 自动在 .config 中启用对应软件包的编译开关 (=y)
-    if [ -f "${build_path}/.config" ]; then
-        echo "正在将软件包写入 .config..."
-        for pkg in "${packages[@]}"; do
-            sed -i "/CONFIG_PACKAGE_${pkg}=/d" "${build_path}/.config"
-            echo "CONFIG_PACKAGE_${pkg}=y" >> "${build_path}/.config"
-        done
-    fi
-
     echo "core/feeds/overrides.conf 配置处理完成！"
 }
 
