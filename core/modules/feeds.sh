@@ -145,7 +145,7 @@ override_feeds() {
         pkg=$(echo "$pkg" | xargs)
 
         force_package_from_feed "$feed" "$pkg"
-    done < "$conf_file"
+    done < "$config_file"
 }
 
 verify_feed_overrides() {
