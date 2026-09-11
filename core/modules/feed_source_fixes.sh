@@ -1,22 +1,6 @@
 #!/usr/bin/env bash
 # install_feeds 前的 feed 工作树修正。
 
-update_adguardhome(){
-    # 彻底移除所有 feeds 目录下重名的 adguardhome 文件夹，消除冲突
-    cd "$BUILD_PATH" || return 1
-    echo "正在清理重复的 adguardhome 插件..."
-    find feeds/ -type d \( -name "luci-app-adguardhome" -o -name "adguardhome" \) -exec rm -rf {} + 2>/dev/null || true
-    rm -rf package/luci-app-adguardhome package/adguardhome
-
-    # 将 kenzo 源里的 adguardhome 强制复制到 package/ 目录（package 目录优先级最高）
-    if [ -d "feeds/kenzo/luci-app-adguardhome" ]; then
-        cp -r feeds/kenzo/luci-app-adguardhome package/
-    fi
-    if [ -d "feeds/kenzo/adguardhome" ]; then
-        cp -r feeds/kenzo/adguardhome package/
-    fi
-}
-
 remove_unwanted_packages() {
     # 移除将由 custom_feed 接管或会产生冲突的上游包。
     local luci_packages=(

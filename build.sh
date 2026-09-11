@@ -391,7 +391,6 @@ BUILD_PATH="$(realpath "$ROOT_PATH/$BUILD_DIR")"
 
 # 合并处理config
 apply_repo_modifications
-tail -n 25 "$BUILD_PATH/package/emortal/default-settings/files/99-default-settings-chinese"
 assemble_config
 print_config_fragment_summary
 remove_uhttpd_dependency

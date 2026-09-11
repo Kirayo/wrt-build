@@ -40,14 +40,15 @@ update_feeds() {
     sed -i '/^#/d' "$FEEDS_PATH"
     sed -i '/[[:space:]]custom_feed[[:space:]]/d' "$FEEDS_PATH"
 
-    append_feed "$FEEDS_PATH" "kenzo" "src-git kenzo https://github.com/kenzok8/openwrt-packages"
+    append_feed "$FEEDS_PATH" "kenzo" "src-git kenzo https://github.com/kenzok8/openwrt-packages.git;main"
+    append_feed "$FEEDS_PATH" "OpenAppFilter" "src-git OpenAppFilter https://github.com/destan19/OpenAppFilter.git;main"
 
     # 确保切换到正确的源码根目录
     cd "${BUILD_PATH:-.}" || return 1
 
     # 彻底清理旧的 feeds 缓存文件夹，确保没有残留的旧驱动
     rm -rf ./feeds/
-    
+
     # 使用 -f -a 强制更新所有源，防止 git 冲突导致 CI 中断
     ./scripts/feeds update -f -a
 }
@@ -60,4 +61,61 @@ install_feeds() {
 
     # 配合 -f 强制重新建立符号链接，覆盖旧的同名包
     ./scripts/feeds install -f -a
+}
+
+override_feeds() {
+    local config_file="$CORE_PATH/feeds/overrides.conf"
+
+    [ -f "$config_file" ] || {
+        echo "没有 feeds 覆盖配置，跳过"
+        return 0
+    }
+
+    echo "正在处理第三方 feed 覆盖..."
+
+    cd "${BUILD_PATH:-.}" || return 1
+
+    while IFS='|' read -r feed package; do
+        # 跳过空行和注释
+        [ -z "$feed" ] && continue
+        case "$feed" in
+            \#*) continue ;;
+        esac
+
+        echo "覆盖 package: $package <- $feed"
+
+        find package/feeds -maxdepth 2 \
+            -type l \
+            -name "$package" \
+            -delete 2>/dev/null || true
+
+        ./scripts/feeds install -p "$feed" -f "$package"
+    done < "$config_file"
+}
+
+verify_feed_overrides() {
+    local config_file="$CORE_PATH/feeds/overrides.conf"
+
+    [ -f "$config_file" ] || return 0
+
+    cd "${BUILD_PATH:-.}" || return 1
+
+    echo "检查 feeds 覆盖结果..."
+
+    while IFS='|' read -r feed package; do
+        [ -z "$feed" ] && continue
+
+        case "$feed" in
+            \#*) continue ;;
+        esac
+
+        local path="package/feeds/$feed/$package"
+
+        if [ -L "$path" ]; then
+            echo "  ✓ $package -> $feed"
+        else
+            echo "  ✗ $package 未正确来自 $feed"
+            return 1
+        fi
+    done < "$config_file"
 }

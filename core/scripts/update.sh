@@ -62,14 +62,14 @@ source "$MODULE_PATH/luci_fixes.sh"
 source "$MODULE_PATH/service_fixes.sh"
 
 # 阶段顺序不可随意调整：feeds install 前后依赖的目录不同。
-stage_repo_checkout() {
+repo_checkout() {
     # 从干净的上游源码树开始，保证后续修正基线一致。
     clone_repo
     clean_up
     reset_feeds_conf
 }
 
-stage_upstream_feeds_update() {
+upstream_feeds_update() {
     # 先生成上游 feeds/* 工作树。
     update_feeds
 }
@@ -79,12 +79,6 @@ stage_feed_source_cleanup() {
     # remove_unwanted_packages
     # remove_tweaked_packages
     :
-}
-
-stage_custom_feed_prepare() {
-    # custom_feed 以 src-link 加入 feeds，仍属于 install 前阶段。
-    # install_custom_feed
-    update_adguardhome
 }
 
 stage_pre_install_source_fixes() {
@@ -135,9 +129,14 @@ stage_pre_install_source_fixes() {
     # fix_kconfig_recursive_dependency
 }
 
-stage_feeds_install() {
+feeds_install() {
     # install 后才会生成 package/feeds/*。
     install_feeds
+}
+
+override_custom_feed() {
+    override_feeds
+    verify_feed_overrides
 }
 
 stage_post_install_package_fixes() {
@@ -160,10 +159,11 @@ stage_post_install_package_fixes() {
 }
 
 main() {
-    stage_repo_checkout
-    stage_upstream_feeds_update
+    repo_checkout
+    upstream_feeds_update
     stage_pre_install_source_fixes
-    stage_feeds_install
+    feeds_install
+    override_custom_feed
 }
 
 main "$@"
