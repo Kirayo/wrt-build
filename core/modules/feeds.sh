@@ -13,8 +13,16 @@ append_feed() {
     local match_pattern="$2"
     local feed_entry="$3"
 
-    if ! grep -q "$match_pattern" "$feeds_path"; then
-        [ -z "$(tail -c 1 "$feeds_path")" ] || echo "" >>"$feeds_path"
+    # 1. 确保目标文件存在
+    [ -f "$feeds_path" ] || touch "$feeds_path"
+
+    # 2. 精确匹配：仅匹配未被注释且名称完全相同的 feed 行
+    # 匹配规则：行首可有空格 -> src-xxx -> 空格 -> 准确的 feed 名称 -> 空格或行尾
+    if ! grep -qE "^[[:space:]]*src-[^[:space:]]+[[:space:]]+${match_pattern}([[:space:]]|$)" "$feeds_path"; then
+        # 3. 如果文件末尾没有换行符，自动补全换行（保留原巧妙逻辑，屏蔽潜在 stderr）
+        [ -z "$(tail -c 1 "$feeds_path" 2>/dev/null)" ] || echo "" >>"$feeds_path"
+
+        # 4. 追加新源
         echo "$feed_entry" >>"$feeds_path"
     fi
 }
@@ -40,8 +48,8 @@ update_feeds() {
     sed -i '/^#/d' "$FEEDS_PATH"
     sed -i '/[[:space:]]custom_feed[[:space:]]/d' "$FEEDS_PATH"
 
-    append_feed "$FEEDS_PATH" "kenzo" "src-git kenzo https://github.com/kenzok8/openwrt-packages.git;main"
-    append_feed "$FEEDS_PATH" "OpenAppFilter" "src-git OpenAppFilter https://github.com/destan19/OpenAppFilter.git;main"
+    append_feed "$FEEDS_PATH" "kenzo" "src-git kenzo https://github.com/kenzok8/openwrt-packages.git"
+    append_feed "$FEEDS_PATH" "OpenAppFilter" "src-git OpenAppFilter https://github.com/destan19/OpenAppFilter.git"
 
     # 确保切换到正确的源码根目录
     cd "${BUILD_PATH:-.}" || return 1
