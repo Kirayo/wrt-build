@@ -49,7 +49,6 @@ update_feeds() {
     sed -i '/[[:space:]]custom_feed[[:space:]]/d' "$FEEDS_PATH"
 
     append_feed "$FEEDS_PATH" "kenzo" "src-git kenzo https://github.com/kenzok8/openwrt-packages.git"
-    append_feed "$FEEDS_PATH" "OpenAppFilter" "src-git OpenAppFilter https://github.com/destan19/OpenAppFilter.git"
 
     # 确保切换到正确的源码根目录
     cd "${BUILD_PATH:-.}" || return 1
@@ -126,4 +125,30 @@ verify_feed_overrides() {
             return 1
         fi
     done < "$config_file"
+}
+
+prepare_oaf() {
+    local feeds_path
+    feeds_path="$BUILD_PATH/feeds"
+
+    echo "正在清理默认旧版 OpenAppFilter..."
+
+    # 删除 ImmortalWrt / LibWrt 默认集成的旧版
+    rm -rf "$feeds_path/packages/net/open-app-filter"
+    rm -rf "$feeds_path/luci/applications/luci-app-appfilter"
+
+    # 保险清理可能残留的目录
+    find "$feeds_path" -type d \( -name "*appfilter*" -o -name "*oaf*" \) 2>/dev/null | xargs -r rm -rf || true
+
+    # 添加官方最新版
+    local oaf_path="$BUILD_PATH/package/OpenAppFilter"
+
+    echo "正在准备官方最新版 OpenAppFilter..."
+
+    rm -rf "$oaf_path"
+
+    git clone \
+        --depth=1 \
+        https://github.com/destan19/OpenAppFilter.git \
+        "$oaf_path"
 }

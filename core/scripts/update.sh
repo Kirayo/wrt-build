@@ -72,6 +72,7 @@ repo_checkout() {
 upstream_feeds_update() {
     # 先生成上游 feeds/* 工作树。
     update_feeds
+    prepare_oaf
 }
 
 stage_feed_source_cleanup() {

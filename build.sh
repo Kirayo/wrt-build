@@ -358,6 +358,94 @@ assemble_config() {
     echo ""
     echo "=================================================="
 }
+disable_feed_export() {
+    local build_path="${1:-.}"
+    shift
+    local feeds=("$@")
+
+    [ ${#feeds[@]} -eq 0 ] && return 0
+
+    local config_file="${build_path}/.config"
+    local uci_defaults_dir="${build_path}/files/etc/uci-defaults"
+    local cleanup_script="${uci_defaults_dir}/99-remove-custom-distfeeds"
+
+    # 1. 在 .config 中禁用第三方源导出
+    if [ -f "$config_file" ]; then
+        for feed in "${feeds[@]}"; do
+            sed -i "/CONFIG_FEED_${feed}=/d" "$config_file"
+            echo "# CONFIG_FEED_${feed} is not set" >> "$config_file"
+        done
+    fi
+
+    # 2. 生成 uci-defaults 开机自清理脚本（双重保险）
+    mkdir -p "$uci_defaults_dir"
+    if [ ! -f "$cleanup_script" ]; then
+        echo -e '#!/bin/sh\n# 自动清理第三方软件源地址' > "$cleanup_script"
+        chmod +x "$cleanup_script"
+    fi
+
+    for feed in "${feeds[@]}"; do
+        cat << EOF >> "$cleanup_script"
+[ -f /etc/opkg/distfeeds.conf ] && sed -i '/[[:space:]]${feed}[[:space:]]/d' /etc/opkg/distfeeds.conf 2>/dev/null
+[ -f /etc/apk/repositories ] && sed -i '/[[:space:]]${feed}[[:space:]]/d' /etc/apk/repositories 2>/dev/null
+EOF
+    done
+
+    grep -q "^exit 0" "$cleanup_script" || echo "exit 0" >> "$cleanup_script"
+}
+
+process_overrides_config() {
+    # 参数 1：源码根目录路径（可选，默认当前目录 .）
+    # 参数 2：配置文件路径（可选，默认 core/feeds/overrides.conf）
+    local build_path="${1:-.}"
+    local raw_conf_path="${2:-core/feeds/overrides.conf}"
+
+    # 兼容 Windows 路径反斜杠转为 Linux 正斜杠
+    local conf_file
+    conf_file=$(echo "$raw_conf_path" | tr '\\' '/')
+
+    # 如果传的是相对路径，自动结合 build_path
+    if [[ "$conf_file" != /* ]]; then
+        conf_file="${build_path}/${conf_file}"
+    fi
+
+    if [ ! -f "$conf_file" ]; then
+        echo "警告: 找不到配置文件 '$conf_file'，跳过处理。"
+        return 0
+    fi
+
+    echo "正在解析配置文件: $conf_file"
+
+    # 1. 提取不重复的 Feed 名称（忽略注释 # 和空行）
+    local unique_feeds
+    unique_feeds=($(awk -F'|' '!/^[[:space:]]*#/ && NF>=2 {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); if($1!="") print $1}' "$conf_file" | sort -u))
+
+    # 2. 提取需要编译的 Package 名称
+    local packages
+    packages=($(awk -F'|' '!/^[[:space:]]*#/ && NF>=2 {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); if($2!="") print $2}' "$conf_file" | sort -u))
+
+    if [ ${#unique_feeds[@]} -eq 0 ]; then
+        echo "提示: '$conf_file' 中未包含有效的 Feed 配置。"
+        return 0
+    fi
+
+    echo "检测到需要屏蔽导出的 Feed 列表: ${unique_feeds[*]}"
+    echo "检测到需要勾选编译的 Package 列表: ${packages[*]}"
+
+    # 3. 屏蔽 Feed 导出到固件的 opkg/apk 软件源列表
+    disable_feed_export "$build_path" "${unique_feeds[@]}"
+
+    # 4. 自动在 .config 中启用对应软件包的编译开关 (=y)
+    if [ -f "${build_path}/.config" ]; then
+        echo "正在将软件包写入 .config..."
+        for pkg in "${packages[@]}"; do
+            sed -i "/CONFIG_PACKAGE_${pkg}=/d" "${build_path}/.config"
+            echo "CONFIG_PACKAGE_${pkg}=y" >> "${build_path}/.config"
+        done
+    fi
+
+    echo "core/feeds/overrides.conf 配置处理完成！"
+}
 
 # 读取设备元信息，确定上游源码和构建目录。
 REPO_URL=$(read_ini_by_key "REPO_URL")
@@ -428,6 +516,8 @@ if [[ "$MODE" == "debug" ]]; then
 
     exit 0
 fi
+
+process_overrides_config "$BUILD_PATH"
 
 # ==============================
 # Cleanup old images
