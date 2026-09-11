@@ -358,6 +358,7 @@ assemble_config() {
     echo ""
     echo "=================================================="
 }
+
 disable_feed_export() {
     local build_path="${1:-.}"
     shift
@@ -398,16 +399,11 @@ process_overrides_config() {
     # 参数 1：源码根目录路径（可选，默认当前目录 .）
     # 参数 2：配置文件路径（可选，默认 core/feeds/overrides.conf）
     local build_path="${1:-.}"
-    local raw_conf_path="${2:-core/feeds/overrides.conf}"
+    local raw_conf_path="${2:-$CORE_PATH/feeds/overrides.conf}"
 
     # 兼容 Windows 路径反斜杠转为 Linux 正斜杠
     local conf_file
     conf_file=$(echo "$raw_conf_path" | tr '\\' '/')
-
-    # 如果传的是相对路径，自动结合 build_path
-    if [[ "$conf_file" != /* ]]; then
-        conf_file="${build_path}/${conf_file}"
-    fi
 
     if [ ! -f "$conf_file" ]; then
         echo "警告: 找不到配置文件 '$conf_file'，跳过处理。"

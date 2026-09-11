@@ -70,34 +70,82 @@ install_feeds() {
     ./scripts/feeds install -f -a
 }
 
+prepare_oaf() {
+    local feeds_path
+    feeds_path="$BUILD_PATH/feeds"
+
+    echo "正在清理默认旧版 OpenAppFilter..."
+
+    # 删除 ImmortalWrt / LibWrt 默认集成的旧版
+    rm -rf "$feeds_path/packages/net/open-app-filter"
+    rm -rf "$feeds_path/luci/applications/luci-app-appfilter"
+
+    # 保险清理可能残留的目录
+    find "$feeds_path" -type d \( -name "*appfilter*" -o -name "*oaf*" \) 2>/dev/null | xargs -r rm -rf || true
+
+    # 添加官方最新版
+    local oaf_path="$BUILD_PATH/package/OpenAppFilter"
+
+    echo "正在准备官方最新版 OpenAppFilter..."
+
+    rm -rf "$oaf_path"
+
+    git clone \
+        --depth=1 \
+        https://github.com/destan19/OpenAppFilter.git \
+        "$oaf_path"
+}
+
+# 强制使用指定 feed 的某个包（通用函数）
+# 用法: force_package_from_feed <feed名称> <包名称>
+# 示例: force_package_from_feed kenzo luci-app-adguardhome
+force_package_from_feed() {
+    local feed_name="$1"
+    local pkg_name="$2"
+
+    if [ -z "$feed_name" ] || [ -z "$pkg_name" ]; then
+        echo "错误: 用法 force_package_from_feed <feed名称> <包名称>"
+        return 1
+    fi
+
+    echo "正在强制使用 ${feed_name} 的 ${pkg_name}..."
+
+    # 1. 删除所有其他地方可能存在的同名包
+    cd "${BUILD_PATH:-.}" || return 1
+    rm -rf feeds/*/="$pkg_name"
+    rm -rf package/feeds/*/="$pkg_name"
+    find feeds package/feeds -type d -name "$pkg_name" 2>/dev/null | xargs -r rm -rf
+
+    # 2. 只从指定 feed 安装
+    ./scripts/feeds install -p "$feed_name" "$pkg_name"
+
+    # 3. 简单验证
+    if [ -d "package/feeds/$feed_name/$pkg_name" ] || [ -L "package/feeds/$feed_name/$pkg_name" ]; then
+        echo "✓ 已成功使用 ${feed_name}/${pkg_name}"
+    else
+        echo "⚠ 警告: 未能确认 ${pkg_name} 来自 ${feed_name}，请检查 feeds 是否正确"
+    fi
+}
+
+# 批量强制使用指定 feed 的包
+# 配置文件格式：feed名|包名
 override_feeds() {
     local config_file="$CORE_PATH/feeds/overrides.conf"
 
-    [ -f "$config_file" ] || {
-        echo "没有 feeds 覆盖配置，跳过"
-        return 0
-    }
+    [ ! -f "$config_file" ] && return 0
 
-    echo "正在处理第三方 feed 覆盖..."
+    echo "正在处理强制指定源的包..."
 
-    cd "${BUILD_PATH:-.}" || return 1
+    while IFS='|' read -r feed pkg || [ -n "$feed" ]; do
+        # 跳过注释和空行
+        [[ "$feed" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$feed" || -z "$pkg" ]] && continue
 
-    while IFS='|' read -r feed package; do
-        # 跳过空行和注释
-        [ -z "$feed" ] && continue
-        case "$feed" in
-            \#*) continue ;;
-        esac
+        feed=$(echo "$feed" | xargs)
+        pkg=$(echo "$pkg" | xargs)
 
-        echo "覆盖 package: $package <- $feed"
-
-        find package/feeds -maxdepth 2 \
-            -type l \
-            -name "$package" \
-            -delete 2>/dev/null || true
-
-        ./scripts/feeds install -p "$feed" -f "$package"
-    done < "$config_file"
+        force_package_from_feed "$feed" "$pkg"
+    done < "$conf_file"
 }
 
 verify_feed_overrides() {
@@ -125,30 +173,4 @@ verify_feed_overrides() {
             return 1
         fi
     done < "$config_file"
-}
-
-prepare_oaf() {
-    local feeds_path
-    feeds_path="$BUILD_PATH/feeds"
-
-    echo "正在清理默认旧版 OpenAppFilter..."
-
-    # 删除 ImmortalWrt / LibWrt 默认集成的旧版
-    rm -rf "$feeds_path/packages/net/open-app-filter"
-    rm -rf "$feeds_path/luci/applications/luci-app-appfilter"
-
-    # 保险清理可能残留的目录
-    find "$feeds_path" -type d \( -name "*appfilter*" -o -name "*oaf*" \) 2>/dev/null | xargs -r rm -rf || true
-
-    # 添加官方最新版
-    local oaf_path="$BUILD_PATH/package/OpenAppFilter"
-
-    echo "正在准备官方最新版 OpenAppFilter..."
-
-    rm -rf "$oaf_path"
-
-    git clone \
-        --depth=1 \
-        https://github.com/destan19/OpenAppFilter.git \
-        "$oaf_path"
 }
