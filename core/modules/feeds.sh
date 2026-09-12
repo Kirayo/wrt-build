@@ -48,7 +48,6 @@ update_feeds() {
     # append_feed "$FEEDS_PATH" "openwrt_bandix" "src-git openwrt_bandix https://github.com/timsaya/openwrt-bandix.git;main"
     # append_feed "$FEEDS_PATH" "luci_app_bandix" "src-git luci_app_bandix https://github.com/timsaya/luci-app-bandix.git;main"
     append_feed "$FEEDS_PATH" "kenzo" "src-git kenzo https://github.com/kenzok8/openwrt-packages.git"
-    append_feed "$FEEDS_PATH" "stevenjoezhang" "src-git stevenjoezhang https://github.com/stevenjoezhang/luci-app-adguardhome/tree/dev"
 
     # 确保切换到正确的源码根目录
     cd "${BUILD_PATH:-.}" || return 1
@@ -68,6 +67,73 @@ install_feeds() {
 
     # 配合 -f 强制重新建立符号链接，覆盖旧的同名包
     ./scripts/feeds install -f -a
+}
+
+# 单包处理逻辑
+prepare_single_pkg() {
+    local repo_url="$1"
+    local target_name="$2"
+    local clean_keywords="$3"
+
+    local feeds_path="$BUILD_PATH/feeds"
+
+    # 若未指定目录名，自动从 URL 提取（如 xxx/OpenClash.git -> OpenClash）
+    if [ -z "$target_name" ]; then
+        target_name=$(basename "$repo_url" .git)
+    fi
+
+    echo "=========================================="
+    echo "🚀 正在处理插件: ${target_name}"
+    echo "=========================================="
+
+    # 1. 清理 feeds 目录下冲突的旧版源码
+    if [ -d "$feeds_path" ]; then
+        echo "🧹 正在清理 feeds 目录下的冲突包..."
+        [ -z "$clean_keywords" ] && clean_keywords="$target_name"
+
+        for kw in $clean_keywords; do
+            echo "   -> 移除包含 '${kw}' 关键词的目录"
+            find "$feeds_path" -type d -name "*${kw}*" 2>/dev/null | xargs -r rm -rf || true
+        done
+    fi
+
+    # 2. 重新拉取最新源码至 package/ 对应目录
+    local dest_path="$BUILD_PATH/package/$target_name"
+    echo "📥 正在拉取最新源码至: $dest_path"
+    rm -rf "$dest_path"
+
+    git clone --depth=1 "$repo_url" "$dest_path"
+
+    echo "✅ [${target_name}] 准备完毕！"
+    echo ""
+}
+
+# 逐行解析配置文件
+batch_prepare_pkg() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "❌ 错误: 找不到配置文件: $CONFIG_FILE"
+        exit 1
+    fi
+
+    echo "📋 开始读取配置文件: $CONFIG_FILE"
+    echo ""
+
+    while IFS='|' read -r raw_url raw_name raw_keywords || [ -n "$raw_url" ]; do
+        # 管道符两端去空格
+        local url target_name clean_keywords
+        url=$(echo "$raw_url" | xargs)
+        target_name=$(echo "$raw_name" | xargs)
+        clean_keywords=$(echo "$raw_keywords" | xargs)
+
+        # 忽略空行和 # 开头的注释行
+        if [ -z "$url" ] || [[ "$url" =~ ^# ]]; then
+            continue
+        fi
+
+        prepare_single_pkg "$url" "$target_name" "$clean_keywords"
+    done < "$CONFIG_FILE"
+
+    echo "🎉 配置文件中的所有插件已全部拉取/预处理完毕！"
 }
 
 prepare_oaf() {
