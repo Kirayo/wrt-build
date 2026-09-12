@@ -72,7 +72,7 @@ repo_checkout() {
 upstream_feeds_update() {
     # 先生成上游 feeds/* 工作树。
     update_feeds
-    batch_prepare_pkg $CORE_PATH/feeds/packages.conf
+    batch_prepare_pkg
 }
 
 stage_feed_source_cleanup() {
