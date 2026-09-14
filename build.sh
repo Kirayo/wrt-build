@@ -369,12 +369,12 @@ assemble_config() {
     fi
 
     # ==================== 新增：打印合并结果 ====================
-    echo "=================================================="
-    echo " [INFO] 基础与片段配置文件合并完成，合并后原始数据如下:"
-    echo "=================================================="
-    cat "$config_path"
-    echo ""
-    echo "=================================================="
+    # echo "=================================================="
+    # echo " [INFO] 基础与片段配置文件合并完成，合并后原始数据如下:"
+    # echo "=================================================="
+    # cat "$config_path"
+    # echo ""
+    # echo "=================================================="
 }
 
 # 从 third_party_feeds 配置文件解析出 feed 名列表
@@ -446,7 +446,7 @@ setup_remove_third_party_feeds() {
 # 用法: setup_disable_config_feeds [源码根] [third_party_feeds路径]
 setup_disable_config_feeds() {
     local ROOT="${1:-${BUILD_PATH:-.}}"
-    local conf_file="${2:-${CORE_PATH}/feeds/third_party_feeds}"
+    local conf_file="${2:-${CORE_PATH}/feeds/third_party_feeds.conf}"
     local CFG feeds name
 
     ROOT="$(cd "$ROOT" 2>/dev/null && pwd || echo "$ROOT")"
