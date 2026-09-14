@@ -560,17 +560,28 @@ CPU_CORES=$(nproc)
 DOWNLOAD_JOBS=$((CPU_CORES * 2))
 BUILD_JOBS=$((CPU_CORES + 1))
 
+# 防止异常环境 nproc 失败
+[ "$CPU_CORES" -ge 1 ] 2>/dev/null || CPU_CORES=1
+[ "$DOWNLOAD_JOBS" -ge 1 ] || DOWNLOAD_JOBS=2
+[ "$BUILD_JOBS" -ge 1 ] || BUILD_JOBS=1
+
+echo "CPU cores     : $CPU_CORES"
 echo "Download jobs: $DOWNLOAD_JOBS"
 echo "Build jobs   : $BUILD_JOBS"
 
 make download -j"$DOWNLOAD_JOBS"
-make -j"$BUILD_JOBS" || make -j1 V=s
+
+# 先并行；失败再单线程出完整日志
+if ! make -j"$BUILD_JOBS"; then
+    echo "并行编译失败，改用 -j1 V=s 重试以便定位错误..."
+    make -j1 V=s
+fi
 
 # ==============================
 # Build Artifacts
 # ==============================
 echo "================================"
-echo " Build File"
+echo " 编译后文件列表："
 ls -lh "$TARGET_DIR"
 echo "================================"
 
@@ -590,6 +601,6 @@ done < <(
 
 echo
 echo "================================"
-echo "Output File"
+echo " 输出目录: $OUTPUT_DIR"
 ls -lh "$OUTPUT_DIR"
 echo "================================"
