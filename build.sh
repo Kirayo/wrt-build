@@ -243,6 +243,7 @@ join_fragments() {
     local IFS=','
     echo "$*"
 }
+
 # 校验 CONFIG_FRAGMENTS 是否有效
 resolve_config_fragments() {
     local fragment
@@ -275,18 +276,6 @@ print_config_preview() {
         order=$((order + 1))
     done
 
-}
-
-remove_uhttpd_dependency() {
-    local config_path="$BUILD_PATH/.config"
-    local luci_makefile_path="$BUILD_PATH/feeds/luci/collections/luci/Makefile"
-
-    [[ -f "$config_path" ]] || return 0
-    grep -q "CONFIG_PACKAGE_luci-app-quickfile=y" "$config_path" || return 0
-    [[ -f "$luci_makefile_path" ]] || return 0
-
-    sed -i '/luci-light/d' "$luci_makefile_path"
-    echo "Removed uhttpd (luci-light) dependency as luci-app-quickfile (nginx) is enabled."
 }
 
 apply_repo_modifications() {
@@ -323,6 +312,25 @@ EOF
     fi
 }
 
+# 关闭自动挂载
+setup_disable_automount() {
+    local ROOT="${BUILD_PATH:-.}"
+    ROOT="$(cd "$ROOT" 2>/dev/null && pwd || echo "$ROOT")"
+
+    mkdir -p "${ROOT}/files/etc/config"
+    cat > "${ROOT}/files/etc/config/fstab" << 'EOF'
+config global
+	option anon_swap '0'
+	option anon_mount '0'
+	option auto_swap '0'
+	option auto_mount '0'
+	option delay_root '5'
+	option check_fs '0'
+EOF
+    echo "[OK] 已写入 ${ROOT}/files/etc/config/fstab（关闭自动挂载）"
+}
+
+# 汇总配置文件
 assemble_config() {
     local fragment
     local config_path="$BUILD_PATH/.config"
@@ -341,6 +349,9 @@ assemble_config() {
         if [ -f "$CONFIG_FRAGMENT_DIR/$fragment.config" ]; then
             cat "$CONFIG_FRAGMENT_DIR/$fragment.config" >> "$config_path"
             echo "" >> "$config_path"  # 每个片段追加完后强制换行
+            if [ -f "$CONFIG_FRAGMENT_DIR/no-usb.config" ]; then
+                setup_disable_automount
+            fi
         fi
     done
 
@@ -359,79 +370,66 @@ assemble_config() {
     echo "=================================================="
 }
 
-disable_feed_export() {
-    local build_path="${1:-.}"
+# 去除固件中的第三方 feeds（首次开机清理 distfeeds）
+# 用法: setup_remove_third_party_feeds <源码根> feed1 feed2 feed3 ...
+setup_remove_third_party_feeds() {
+    local ROOT="${1:-$BUILD_PATH}"
     shift
-    local feeds=("$@")
+    local feeds="$*"
 
-    [ ${#feeds[@]} -eq 0 ] && return 0
+    ROOT="$(cd "$ROOT" 2>/dev/null && pwd || echo "$ROOT")"
+    local script_dir="${ROOT}/files/etc/uci-defaults"
+    local script="${script_dir}/99-remove-third-party-feeds"
 
-    local config_file="${build_path}/.config"
-    local uci_defaults_dir="${build_path}/files/etc/uci-defaults"
-    local cleanup_script="${uci_defaults_dir}/99-remove-custom-distfeeds"
+    mkdir -p "$script_dir"
 
-    # 1. 在 .config 中禁用第三方源导出
-    if [ -f "$config_file" ]; then
-        for feed in "${feeds[@]}"; do
-            sed -i "/CONFIG_FEED_${feed}=/d" "$config_file"
-            echo "# CONFIG_FEED_${feed} is not set" >> "$config_file"
-        done
-    fi
+    {
+        echo '#!/bin/sh'
+        echo '# 清理固件内第三方 opkg/apk 软件源'
+        echo 'F_OPKG=/etc/opkg/distfeeds.conf'
+        echo 'F_APK=/etc/apk/repositories'
+        echo ''
+        if [ -n "$feeds" ]; then
+            for feed in $feeds; do
+                echo "[ -f \"\$F_OPKG\" ] && sed -i '/${feed}/d' \"\$F_OPKG\" 2>/dev/null"
+                echo "[ -f \"\$F_APK\" ] && sed -i '/${feed}/d' \"\$F_APK\" 2>/dev/null"
+            done
+        else
+            # 未传参数时的默认关键字（按需改）
+            echo "[ -f \"\$F_OPKG\" ] && sed -i '/helloworld/d;/passwall/d;/kenzok8/d;/openwrt_passwall/d' \"\$F_OPKG\" 2>/dev/null"
+            echo "[ -f \"\$F_APK\" ] && sed -i '/helloworld/d;/passwall/d;/kenzok8/d' \"\$F_APK\" 2>/dev/null"
+        fi
+        echo 'exit 0'
+    } > "$script"
 
-    # 2. 生成 uci-defaults 开机自清理脚本（双重保险）
-    mkdir -p "$uci_defaults_dir"
-    if [ ! -f "$cleanup_script" ]; then
-        echo -e '#!/bin/sh\n# 自动清理第三方软件源地址' > "$cleanup_script"
-        chmod +x "$cleanup_script"
-    fi
-
-    for feed in "${feeds[@]}"; do
-        cat << EOF >> "$cleanup_script"
-[ -f /etc/opkg/distfeeds.conf ] && sed -i '/[[:space:]]${feed}[[:space:]]/d' /etc/opkg/distfeeds.conf 2>/dev/null
-[ -f /etc/apk/repositories ] && sed -i '/[[:space:]]${feed}[[:space:]]/d' /etc/apk/repositories 2>/dev/null
-EOF
-    done
-
-    grep -q "^exit 0" "$cleanup_script" || echo "exit 0" >> "$cleanup_script"
+    chmod +x "$script"
+    echo "[OK] 已写入 $script"
+    echo "     将清理关键字: ${feeds:-默认 helloworld/passwall/kenzok8}"
 }
 
-process_overrides_config() {
-    # 参数 1：源码根目录路径（可选，默认当前目录 .）
-    # 参数 2：配置文件路径（可选，默认 core/feeds/overrides.conf）
-    local build_path="${1:-.}"
-    local raw_conf_path="${2:-$CORE_PATH/feeds/overrides.conf}"
+# 可选：若分支支持 CONFIG_FEED_*，在 .config 里关闭导出
+# 用法: setup_disable_config_feeds <源码根> feed1 feed2 ...
+setup_disable_config_feeds() {
+    local ROOT="${1:-$BUILD_PATH}"
+    shift
+    local feeds="$*"
+    local CFG
 
-    # 兼容 Windows 路径反斜杠转为 Linux 正斜杠
-    local conf_file
-    conf_file=$(echo "$raw_conf_path" | tr '\\' '/')
+    ROOT="$(cd "$ROOT" 2>/dev/null && pwd || echo "$ROOT")"
+    CFG="${ROOT}/.config"
 
-    if [ ! -f "$conf_file" ]; then
-        echo "警告: 找不到配置文件 '$conf_file'，跳过处理。"
+    [ -f "$CFG" ] || {
+        echo "[SKIP] 无 .config，跳过 CONFIG_FEED 处理"
         return 0
-    fi
+    }
+    [ -z "$feeds" ] && return 0
 
-    echo "正在解析配置文件: $conf_file"
-
-    # 1. 提取不重复的 Feed 名称（忽略注释 # 和空行）
-    local unique_feeds
-    unique_feeds=($(awk -F'|' '!/^[[:space:]]*#/ && NF>=2 {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); if($1!="") print $1}' "$conf_file" | sort -u))
-
-    # 2. 提取需要编译的 Package 名称
-    local packages
-    packages=($(awk -F'|' '!/^[[:space:]]*#/ && NF>=2 {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); if($2!="") print $2}' "$conf_file" | sort -u))
-
-    if [ ${#unique_feeds[@]} -eq 0 ]; then
-        echo "提示: '$conf_file' 中未包含有效的 Feed 配置。"
-        return 0
-    fi
-
-    echo "检测到需要屏蔽导出的 Feed 列表: ${unique_feeds[*]}"
-    echo "检测到需要勾选编译的 Package 列表: ${packages[*]}"
-
-    # 3. 屏蔽 Feed 导出到固件的 opkg/apk 软件源列表
-    disable_feed_export "$build_path" "${unique_feeds[@]}"
-
-    echo "core/feeds/overrides.conf 配置处理完成！"
+    for feed in $feeds; do
+        sed -i "/CONFIG_FEED_${feed}=/d" "$CFG"
+        sed -i "/CONFIG_FEED_${feed} is not set/d" "$CFG"
+        echo "# CONFIG_FEED_${feed} is not set" >> "$CFG"
+    done
+    echo "[OK] 已在 .config 禁用 CONFIG_FEED: $feeds"
 }
 
 # 读取设备元信息，确定上游源码和构建目录。
@@ -441,6 +439,8 @@ REPO_BRANCH=${REPO_BRANCH:-main}
 BUILD_DIR=$(read_ini_by_key "BUILD_DIR")
 COMMIT_HASH=$(read_ini_by_key "COMMIT_HASH")
 COMMIT_HASH=${COMMIT_HASH:-none}
+# 构建目录
+BUILD_PATH="$(realpath "$ROOT_PATH/$BUILD_DIR")"
 
 resolve_config_fragments
 
@@ -449,9 +449,10 @@ if [[ $MODE == "config_preview" ]]; then
     exit 0
 fi
 
-# 下游
+# 构建准备
 "$CORE_PATH/scripts/update.sh" "$REPO_URL" "$REPO_BRANCH" "$BUILD_DIR" "$COMMIT_HASH"
 
+cd "$BUILD_PATH"
 # 构建目录
 if [[ "$GITHUB_ACTIONS" == "true" && -z "$BUILD_DIR" ]]; then
     BUILD_DIR="actions-build"
@@ -462,15 +463,10 @@ if [[ -z "$BUILD_DIR" ]]; then
     exit 1
 fi
 
-BUILD_PATH="$(realpath "$ROOT_PATH/$BUILD_DIR")"
-
 # 合并处理config
-apply_repo_modifications
 assemble_config
 print_config_fragment_summary
-remove_uhttpd_dependency
 
-cd "$BUILD_PATH"
 
 # x86 feed 修正
 if grep -qE "^CONFIG_TARGET_x86_64=y" "$BUILD_PATH/.config"; then
@@ -504,12 +500,12 @@ if [[ "$MODE" == "debug" ]]; then
     exit 0
 fi
 
-process_overrides_config "$BUILD_PATH"
-
 # ==============================
+# Build前
+# ==============================
+apply_repo_modifications
+
 # Cleanup old images
-# ==============================
-
 TARGET_DIR="$BUILD_PATH/bin/targets"
 
 if [[ -d "$TARGET_DIR" ]]; then

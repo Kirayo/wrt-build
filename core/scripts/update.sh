@@ -44,7 +44,6 @@ MODULE_PATH="$(cd "$CORE_PATH/modules" && pwd)"
 #######################################
 # 默认ip地址
 LAN_ADDR="192.168.0.1"
-FEEDS_CONF="feeds.conf.default"
 
 # 模块
 # 按静态职责加载模块，执行顺序仍由本脚本统一控制。
@@ -69,8 +68,9 @@ repo_checkout() {
     reset_feeds_conf
 }
 
-upstream_feeds_update() {
-    # 先生成上游 feeds/* 工作树。
+feeds_update() {
+    FEEDS_PATH=$(get_feeds_path)
+    append_feeds_from_file "$FEEDS_PATH" "$CORE_PATH/feeds/third_party_feeds.conf"
     update_feeds
     batch_prepare_pkg
 }
@@ -161,7 +161,7 @@ stage_post_install_package_fixes() {
 
 main() {
     repo_checkout
-    upstream_feeds_update
+    feeds_update
     stage_pre_install_source_fixes
     feeds_install
     override_custom_feed

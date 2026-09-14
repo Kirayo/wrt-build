@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+FEEDS_CONF="feeds.conf.default"
+
 get_feeds_path() {
     local feeds_path="$BUILD_PATH/$FEEDS_CONF"
     if [[ -f "$BUILD_PATH/feeds.conf" ]]; then
@@ -8,35 +10,67 @@ get_feeds_path() {
     printf '%s\n' "$feeds_path"
 }
 
+# ============================================================
+# 第三方 Feed 相关函数
+# ============================================================
+
+# 追加单条到目标 feeds 文件（去重）
+# 用法: append_feed <目标feeds文件> <feed名> <完整src行>
 append_feed() {
     local feeds_path="$1"
-    local match_pattern="$2"
+    local match_name="$2"
     local feed_entry="$3"
 
-    # 1. 确保目标文件存在
+    [ -n "$feeds_path" ] && [ -n "$match_name" ] && [ -n "$feed_entry" ] || {
+        echo "用法: append_feed <目标feeds文件> <feed名> <完整src行>" >&2
+        return 1
+    }
+
     [ -f "$feeds_path" ] || touch "$feeds_path"
 
-    # 2. 精确匹配：仅匹配未被注释且名称完全相同的 feed 行
-    # 匹配规则：行首可有空格 -> src-xxx -> 空格 -> 准确的 feed 名称 -> 空格或行尾
-    if ! grep -qE "^[[:space:]]*src-[^[:space:]]+[[:space:]]+${match_pattern}([[:space:]]|$)" "$feeds_path"; then
-        # 3. 如果文件末尾没有换行符，自动补全换行（保留原巧妙逻辑，屏蔽潜在 stderr）
-        [ -z "$(tail -c 1 "$feeds_path" 2>/dev/null)" ] || echo "" >>"$feeds_path"
-
-        # 4. 追加新源
-        echo "$feed_entry" >>"$feeds_path"
+    if grep -qE "^[[:space:]]*src-[^[:space:]]+[[:space:]]+${match_name}([[:space:]]|$)" "$feeds_path"; then
+        echo "[SKIP] feed 已存在: $match_name"
+        return 0
     fi
+
+    if [ -s "$feeds_path" ]; then
+        [ -z "$(tail -c 1 "$feeds_path" 2>/dev/null)" ] || echo "" >>"$feeds_path"
+    fi
+
+    echo "$feed_entry" >>"$feeds_path"
+    echo "[OK] 已追加: $match_name"
+}
+
+# 把项目配置中的 feed 行追加到源码根 feeds.conf.default
+# 用法: append_feeds_from_file <源码根/feeds.conf.default> <项目/feeds/third_party_feeds.conf>
+append_feeds_from_file() {
+    local target_feeds="$1"   # 源码根目录的 feeds.conf.default
+    local conf_file="$2"      # 项目里的 feeds/third_party_feeds
+    local line match_name
+
+    [ -f "$conf_file" ] || {
+        echo "警告: 找不到项目配置: $conf_file" >&2
+        return 0
+    }
+
+    [ -f "$target_feeds" ] || touch "$target_feeds"
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        case "$line" in
+            ''|\#*) continue ;;
+            src-*) ;;
+            *) continue ;;
+        esac
+
+        match_name=$(printf '%s' "$line" | awk '{print $2}')
+        [ -n "$match_name" ] || continue
+
+        append_feed "$target_feeds" "$match_name" "$line"
+    done < "$conf_file"
 }
 
 update_feeds() {
-
-    # # 调试
-
-    # sed -i '/packages_ext/d' "$FEEDS_PATH"
-    # sed -i '/[[:space:]]small8[[:space:]]/d' "$FEEDS_PATH"
-
-    # if [ ! -f "$BUILD_PATH/include/bpf.mk" ]; then
-    #     touch "$BUILD_PATH/include/bpf.mk"
-    # fi
 
     echo "正在更新 feeds 配置与索引..."
     # local FEEDS_PATH
@@ -44,10 +78,6 @@ update_feeds() {
     echo "FEEDS_PATH : $FEEDS_PATH"
     sed -i '/^#/d' "$FEEDS_PATH"
     sed -i '/[[:space:]]custom_feed[[:space:]]/d' "$FEEDS_PATH"
-
-    # append_feed "$FEEDS_PATH" "openwrt_bandix" "src-git openwrt_bandix https://github.com/timsaya/openwrt-bandix.git;main"
-    # append_feed "$FEEDS_PATH" "luci_app_bandix" "src-git luci_app_bandix https://github.com/timsaya/luci-app-bandix.git;main"
-    append_feed "$FEEDS_PATH" "kenzo" "src-git kenzo https://github.com/kenzok8/openwrt-packages.git"
 
     # 确保切换到正确的源码根目录
     cd "${BUILD_PATH:-.}" || return 1
@@ -146,32 +176,6 @@ batch_prepare_pkg() {
     done < "$config_file"
 
     echo "🎉 配置文件中的所有插件已全部拉取/预处理完毕！"
-}
-
-prepare_oaf() {
-    local feeds_path
-    feeds_path="$BUILD_PATH/feeds"
-
-    echo "正在清理默认旧版 OpenAppFilter..."
-
-    # 删除 ImmortalWrt / LibWrt 默认集成的旧版
-    rm -rf "$feeds_path/packages/net/open-app-filter"
-    rm -rf "$feeds_path/luci/applications/luci-app-appfilter"
-
-    # 保险清理可能残留的目录
-    find "$feeds_path" -type d \( -name "*appfilter*" -o -name "*oaf*" \) 2>/dev/null | xargs -r rm -rf || true
-
-    # 添加官方最新版
-    local oaf_path="$BUILD_PATH/package/OpenAppFilter"
-
-    echo "正在准备官方最新版 OpenAppFilter..."
-
-    rm -rf "$oaf_path"
-
-    git clone \
-        --depth=1 \
-        https://github.com/destan19/OpenAppFilter.git \
-        "$oaf_path"
 }
 
 # 强制使用指定 feed 的某个包（通用函数）

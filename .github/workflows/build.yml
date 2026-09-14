@@ -22,7 +22,7 @@ on:
       - "core/compilecfg/**"
       - "core/deconfig/**"
       - "!core/deconfig/fragments/**"
-      - "core/feeds/overrides.conf"
+      - "core/feeds/**"
       - "core/scripts/**"
       - "build.sh"
 
