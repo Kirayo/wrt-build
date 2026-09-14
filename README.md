@@ -75,7 +75,7 @@ GitHub Actions 的手动构建提供模式选择
 构建时会按顺序组合配置：
 
 1. 设备默认 `.config`
-2. `compile_base.config`
+2. `base.config`
 3. `core/deconfig/fragments/<name>.config` 中的有效配置片段
 
 默认片段由 `compilecfg/*.ini` 的 `CONFIG_FRAGMENTS` 指定：

@@ -267,7 +267,7 @@ print_config_preview() {
     print_config_fragment_summary
     echo "Config assembly order:"
     echo "  1) $CONFIG_FILE"
-    echo "  2) $CORE_PATH/deconfig/compile_base.config"
+    echo "  2) $CORE_PATH/deconfig/base.config"
 
     local order=3
     local fragment
@@ -338,9 +338,9 @@ assemble_config() {
     # 1. 先清空（或重新创建）目标 .config 文件
     > "$config_path"
 
-    # 2. 先写入公共基础配置 compile_base.config
-    if [ -f "$CORE_PATH/deconfig/compile_base.config" ]; then
-        cat "$CORE_PATH/deconfig/compile_base.config" >> "$config_path"
+    # 2. 先写入公共基础配置 base.config
+    if [ -f "$CORE_PATH/deconfig/base.config" ]; then
+        cat "$CORE_PATH/deconfig/base.config" >> "$config_path"
         echo "" >> "$config_path"  # 追加换行，防止与后续片段黏连
     fi
 
@@ -349,9 +349,11 @@ assemble_config() {
         if [ -f "$CONFIG_FRAGMENT_DIR/$fragment.config" ]; then
             cat "$CONFIG_FRAGMENT_DIR/$fragment.config" >> "$config_path"
             echo "" >> "$config_path"  # 每个片段追加完后强制换行
-            if [ -f "$CONFIG_FRAGMENT_DIR/no-usb.config" ]; then
-                setup_disable_automount
-            fi
+        fi
+
+        # 记录是否包含 no-usb（不要在循环里反复执行）
+        if [ "$fragment" = "no-usb" ]; then
+            enable_no_usb=1
         fi
     done
 
@@ -359,6 +361,11 @@ assemble_config() {
     if [ -f "$CONFIG_FILE" ]; then
         cat "$CONFIG_FILE" >> "$config_path"
         echo "" >> "$config_path"  # 确保文件结尾有换行
+    fi
+
+    # 5. 仅当本次启用了 no-usb 时，关闭自动挂载（只执行一次）
+    if [ "$enable_no_usb" -eq 1 ]; then
+        setup_disable_automount
     fi
 
     # ==================== 新增：打印合并结果 ====================
@@ -370,14 +377,48 @@ assemble_config() {
     echo "=================================================="
 }
 
+# 从 third_party_feeds 配置文件解析出 feed 名列表
+# 用法: _parse_third_party_feed_names <配置文件>
+# 输出: 空格分隔的 feed 名
+_parse_third_party_feed_names() {
+    local conf_file="$1"
+    local line name
+    local names=""
+
+    [ -f "$conf_file" ] || return 0
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        case "$line" in
+            ''|\#*) continue ;;
+            src-*) ;;
+            *) continue ;;
+        esac
+        name=$(printf '%s' "$line" | awk '{print $2}')
+        [ -n "$name" ] || continue
+        names="${names} ${name}"
+    done < "$conf_file"
+
+    # 去掉首尾空格
+    printf '%s' "$names" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
 # 去除固件中的第三方 feeds（首次开机清理 distfeeds）
-# 用法: setup_remove_third_party_feeds <源码根> feed1 feed2 feed3 ...
+# 一般不需要
+# 用法: setup_remove_third_party_feeds [源码根] [third_party_feeds路径]
 setup_remove_third_party_feeds() {
-    local ROOT="${1:-$BUILD_PATH}"
-    shift
-    local feeds="$*"
+    local ROOT="${1:-${BUILD_PATH:-.}}"
+    local conf_file="${2:-${CORE_PATH}/feeds/third_party_feeds}"
+    local feeds name
 
     ROOT="$(cd "$ROOT" 2>/dev/null && pwd || echo "$ROOT")"
+    feeds=$(_parse_third_party_feed_names "$conf_file")
+
+    if [ -z "$feeds" ]; then
+        echo "[SKIP] 未从 $conf_file 解析到 feed 名"
+        return 0
+    fi
+
     local script_dir="${ROOT}/files/etc/uci-defaults"
     local script="${script_dir}/99-remove-third-party-feeds"
 
@@ -389,46 +430,45 @@ setup_remove_third_party_feeds() {
         echo 'F_OPKG=/etc/opkg/distfeeds.conf'
         echo 'F_APK=/etc/apk/repositories'
         echo ''
-        if [ -n "$feeds" ]; then
-            for feed in $feeds; do
-                echo "[ -f \"\$F_OPKG\" ] && sed -i '/${feed}/d' \"\$F_OPKG\" 2>/dev/null"
-                echo "[ -f \"\$F_APK\" ] && sed -i '/${feed}/d' \"\$F_APK\" 2>/dev/null"
-            done
-        else
-            # 未传参数时的默认关键字（按需改）
-            echo "[ -f \"\$F_OPKG\" ] && sed -i '/helloworld/d;/passwall/d;/kenzok8/d;/openwrt_passwall/d' \"\$F_OPKG\" 2>/dev/null"
-            echo "[ -f \"\$F_APK\" ] && sed -i '/helloworld/d;/passwall/d;/kenzok8/d' \"\$F_APK\" 2>/dev/null"
-        fi
+        for name in $feeds; do
+            echo "[ -f \"\$F_OPKG\" ] && sed -i '/${name}/d' \"\$F_OPKG\" 2>/dev/null"
+            echo "[ -f \"\$F_APK\" ] && sed -i '/${name}/d' \"\$F_APK\" 2>/dev/null"
+        done
         echo 'exit 0'
     } > "$script"
 
     chmod +x "$script"
     echo "[OK] 已写入 $script"
-    echo "     将清理关键字: ${feeds:-默认 helloworld/passwall/kenzok8}"
+    echo "     将清理 feed: $feeds"
 }
 
-# 可选：若分支支持 CONFIG_FEED_*，在 .config 里关闭导出
-# 用法: setup_disable_config_feeds <源码根> feed1 feed2 ...
+# 在 .config 中关闭 CONFIG_FEED_* 导出
+# 用法: setup_disable_config_feeds [源码根] [third_party_feeds路径]
 setup_disable_config_feeds() {
-    local ROOT="${1:-$BUILD_PATH}"
-    shift
-    local feeds="$*"
-    local CFG
+    local ROOT="${1:-${BUILD_PATH:-.}}"
+    local conf_file="${2:-${CORE_PATH}/feeds/third_party_feeds}"
+    local CFG feeds name
 
     ROOT="$(cd "$ROOT" 2>/dev/null && pwd || echo "$ROOT")"
     CFG="${ROOT}/.config"
+    feeds=$(_parse_third_party_feed_names "$conf_file")
 
     [ -f "$CFG" ] || {
         echo "[SKIP] 无 .config，跳过 CONFIG_FEED 处理"
         return 0
     }
-    [ -z "$feeds" ] && return 0
 
-    for feed in $feeds; do
-        sed -i "/CONFIG_FEED_${feed}=/d" "$CFG"
-        sed -i "/CONFIG_FEED_${feed} is not set/d" "$CFG"
-        echo "# CONFIG_FEED_${feed} is not set" >> "$CFG"
+    if [ -z "$feeds" ]; then
+        echo "[SKIP] 未从 $conf_file 解析到 feed 名"
+        return 0
+    fi
+
+    for name in $feeds; do
+        sed -i "/CONFIG_FEED_${name}=/d" "$CFG"
+        sed -i "/CONFIG_FEED_${name} is not set/d" "$CFG"
+        echo "# CONFIG_FEED_${name} is not set" >> "$CFG"
     done
+
     echo "[OK] 已在 .config 禁用 CONFIG_FEED: $feeds"
 }
 
@@ -503,6 +543,7 @@ fi
 # ==============================
 # Build前
 # ==============================
+setup_disable_config_feeds
 apply_repo_modifications
 
 # Cleanup old images
