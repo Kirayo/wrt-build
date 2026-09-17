@@ -73,61 +73,15 @@ feeds_update() {
     append_feeds_from_file "$FEEDS_PATH" "$CORE_PATH/feeds/third_party_feeds.conf"
     update_feeds
     batch_prepare_pkg
-}
-
-stage_feed_source_cleanup() {
-    # 清理会与 custom_feed 替换包冲突的上游 feed 包。
-    # remove_unwanted_packages
-    # remove_tweaked_packages
-    :
+    # 移除luci-app-mosdns的v2ray-geodata、v2ray-geoip、v2ray-geosite依赖
+    setup_mosdns_no_geodata
 }
 
 stage_pre_install_source_fixes() {
-    # 这里仅修改源码树与 feeds/*，不能依赖 package/feeds/*。
-    # update_homeproxy
-    # fix_default_set
-    # fix_miniupnpd
-    # update_golang
-    # change_dnsmasq2full
-    # fix_mk_def_depends
-
     update_default_lan_addr
-    # remove_something_nss_kmod
-    # update_affinity_script
-    # update_ath11k_fw
-    # fix_mkpkg_format_invalid
-    # change_cpuusage
-    # update_tcping
-    # add_ax6600_led
-    # set_custom_task
-    # apply_passwall_tweaks
-    # update_nss_pbuf_performance
     set_build_signature
-    # update_nss_diag
-    # update_menu_location
-    # fix_compile_coremark
-    # update_dnsmasq_conf
-    # add_backup_info_to_sysupgrade
-    # update_mosdns_deconfig
-    # fix_quickstart
-    # update_oaf_deconfig
-    # add_timecontrol
-    # add_quickfile
-    # update_lucky
-    # fix_rust_compile_error
-    # update_smartdns
-    # update_mwan3_fw4
-    # update_diskman
-    # update_dockerman
-    # set_nginx_default_config
-    # update_uwsgi_limit_as
-    # update_argon
-    # update_nginx_ubus_module
     check_default_settings
-    # install_opkg_distfeeds
-    # fix_easytier_mk
     remove_attendedsysupgrade
-    # fix_kconfig_recursive_dependency
 }
 
 feeds_install() {
@@ -138,25 +92,6 @@ feeds_install() {
 override_custom_feed() {
     override_feeds
     verify_feed_overrides
-}
-
-stage_post_install_package_fixes() {
-    # 这里处理已安装到 package/feeds/* 的包和最终一致性检查。
-    # verify_custom_feed_installed_paths
-    # docker_stack_sync_nftables_compat "$BUILD_PATH" "0"
-    # fix_cups_libcups_avahi_depends
-    # fix_easytier_lua
-    # update_adguardhome
-    # update_script_priority
-    # update_geoip
-    # fix_openssl_ktls
-    # fix_opkg_check
-    # fix_netfilter_kmod_clash
-    # fix_quectel_cm
-    # install_pbr_cmcc
-    # fix_pbr_ip_forward
-    # apply_hash_fixes
-    :
 }
 
 main() {
