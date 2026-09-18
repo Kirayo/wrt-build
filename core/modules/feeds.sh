@@ -198,11 +198,15 @@ force_package_from_feed() {
 
     cd "${BUILD_PATH:-.}" || return 1
 
-    # 1. 🧹 清理非目标 feeds 中的源码文件夹（排除目标 feed，防止误删源文件）
-    find feeds -mindepth 2 -maxdepth 4 -name "$pkg_name" ! -path "feeds/$feed_name/*" -exec rm -rf {} + 2>/dev/null
+    # 1. 🧹 清理非目标 feeds 中的源码文件夹（增加目录检查与异常忽略，防止 exit 1）
+    if [ -d "feeds" ]; then
+        find feeds -mindepth 2 -maxdepth 4 -name "$pkg_name" ! -path "feeds/$feed_name/*" -exec rm -rf {} + 2>/dev/null || true
+    fi
 
     # 2. 🗑️ 清理 package/feeds 中的所有旧软链接/文件夹
-    find package/feeds -maxdepth 3 -name "$pkg_name" -exec rm -rf {} + 2>/dev/null
+    if [ -d "package/feeds" ]; then
+        find package/feeds -maxdepth 3 -name "$pkg_name" -exec rm -rf {} + 2>/dev/null || true
+    fi
 
     # 3. 🔗 强制从指定 feed 安装软链接
     ./scripts/feeds install -f -p "$feed_name" "$pkg_name"
@@ -215,7 +219,6 @@ force_package_from_feed() {
         return 1
     fi
 }
-
 # 🔄 批量强制使用指定 feed 的包
 override_feeds() {
     local config_file="${CORE_PATH:-.}/feeds/overrides.conf"
