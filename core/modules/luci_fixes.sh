@@ -41,11 +41,3 @@ update_nginx_ubus_module() {
         echo "错误：未找到 $makefile_path 文件，无法更新 nginx-mod-ubus 模块。" >&2
     fi
 }
-
-setup_mosdns_no_geodata(){
-    local build_path="$BUILD_PATH"
-    find "$build_path/package/mosdns/luci-app-mosdns" -name "Makefile" -exec sed -i \
-        -e 's/+v2ray-geodata//g' \
-        -e 's/+v2ray-geoip//g' \
-        -e 's/+v2ray-geosite//g' {} +
-}

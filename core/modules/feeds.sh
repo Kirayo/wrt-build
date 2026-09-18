@@ -142,6 +142,10 @@ prepare_single_pkg() {
     # 执行 clone (自动展开 clone_args 数组)
     git clone "${clone_args[@]}" "$repo_url" "$dest_path"
 
+    if [ "$target_name" = "luci-app-mosdns" ]; then
+        setup_mosdns_no_geodata $dest_path
+    fi
+
     echo "✅ [${target_name}] 准备完毕！"
     echo ""
 }
@@ -255,4 +259,12 @@ verify_feed_overrides() {
             return 1
         fi
     done < "$config_file"
+}
+
+setup_mosdns_no_geodata(){
+    local package_path="$1"
+    find "$package_path" -name "Makefile" -exec sed -i \
+        -e 's/+v2ray-geodata//g' \
+        -e 's/+v2ray-geoip//g' \
+        -e 's/+v2ray-geosite//g' {} +
 }
