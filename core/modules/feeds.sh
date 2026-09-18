@@ -261,6 +261,7 @@ verify_feed_overrides() {
     done < "$config_file"
 }
 
+# 移除luci-app-mosdns的v2ray-geodata、v2ray-geoip、v2ray-geosite依赖
 setup_mosdns_no_geodata() {
     local package_path="$1"
 

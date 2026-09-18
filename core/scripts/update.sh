@@ -73,8 +73,6 @@ feeds_update() {
     append_feeds_from_file "$FEEDS_PATH" "$CORE_PATH/feeds/third_party_feeds.conf"
     update_feeds
     batch_prepare_pkg
-    # 移除luci-app-mosdns的v2ray-geodata、v2ray-geoip、v2ray-geosite依赖
-    setup_mosdns_no_geodata
 }
 
 stage_pre_install_source_fixes() {
