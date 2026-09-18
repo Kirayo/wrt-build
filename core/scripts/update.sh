@@ -83,12 +83,11 @@ stage_pre_install_source_fixes() {
 }
 
 feeds_install() {
-    # install 后才会生成 package/feeds/*。
+    override_feeds
     install_feeds
 }
 
 override_custom_feed() {
-    override_feeds
     verify_feed_overrides
 }
 

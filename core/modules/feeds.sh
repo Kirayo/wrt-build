@@ -190,43 +190,46 @@ force_package_from_feed() {
     local pkg_name="$2"
 
     if [ -z "$feed_name" ] || [ -z "$pkg_name" ]; then
-        echo "错误: 用法 force_package_from_feed <feed名称> <包名称>"
+        echo "❌ 错误: 用法 force_package_from_feed <feed名称> <包名称>"
         return 1
     fi
 
-    echo "正在强制使用 ${feed_name} 的 ${pkg_name}..."
+    echo "⚡ 正在强制使用 ${feed_name} 的 ${pkg_name}..."
 
-    # 1. 删除所有其他地方可能存在的同名包
     cd "${BUILD_PATH:-.}" || return 1
-    rm -rf feeds/*/="$pkg_name"
-    rm -rf package/feeds/*/="$pkg_name"
-    find feeds package/feeds -type d -name "$pkg_name" 2>/dev/null | xargs -r rm -rf
 
-    # 2. 只从指定 feed 安装
-    ./scripts/feeds install -p "$feed_name" "$pkg_name"
+    # 1. 🧹 清理非目标 feeds 中的源码文件夹（排除目标 feed，防止误删源文件）
+    find feeds -mindepth 2 -maxdepth 4 -name "$pkg_name" ! -path "feeds/$feed_name/*" -exec rm -rf {} + 2>/dev/null
 
-    # 3. 简单验证
-    if [ -d "package/feeds/$feed_name/$pkg_name" ] || [ -L "package/feeds/$feed_name/$pkg_name" ]; then
-        echo "✓ 已成功使用 ${feed_name}/${pkg_name}"
+    # 2. 🗑️ 清理 package/feeds 中的所有旧软链接/文件夹
+    find package/feeds -maxdepth 3 -name "$pkg_name" -exec rm -rf {} + 2>/dev/null
+
+    # 3. 🔗 强制从指定 feed 安装软链接
+    ./scripts/feeds install -f -p "$feed_name" "$pkg_name"
+
+    # 4. 🔍 验证软链接是否存在
+    if [ -L "package/feeds/$feed_name/$pkg_name" ] || [ -d "package/feeds/$feed_name/$pkg_name" ]; then
+        echo "✅ 已成功使用 ${feed_name}/${pkg_name}"
     else
-        echo "⚠ 警告: 未能确认 ${pkg_name} 来自 ${feed_name}，请检查 feeds 是否正确"
+        echo "⚠️ 警告: 未能确认 ${pkg_name} 来自 ${feed_name}，请检查 feeds 是否正确"
+        return 1
     fi
 }
 
-# 批量强制使用指定 feed 的包
-# 配置文件格式：feed名|包名
+# 🔄 批量强制使用指定 feed 的包
 override_feeds() {
-    local config_file="$CORE_PATH/feeds/overrides.conf"
+    local config_file="${CORE_PATH:-.}/feeds/overrides.conf"
 
     [ ! -f "$config_file" ] && return 0
 
-    echo "正在处理强制指定源的包..."
+    echo "🚀 正在处理强制指定源的包..."
 
     while IFS='|' read -r feed pkg || [ -n "$feed" ]; do
         # 跳过注释和空行
         [[ "$feed" =~ ^[[:space:]]*# ]] && continue
         [[ -z "$feed" || -z "$pkg" ]] && continue
 
+        # 去除前后空格
         feed=$(echo "$feed" | xargs)
         pkg=$(echo "$pkg" | xargs)
 
@@ -234,31 +237,37 @@ override_feeds() {
     done < "$config_file"
 }
 
+# 🔍 检查覆盖结果
 verify_feed_overrides() {
-    local config_file="$CORE_PATH/feeds/overrides.conf"
+    local config_file="${CORE_PATH:-.}/feeds/overrides.conf"
 
     [ -f "$config_file" ] || return 0
 
     cd "${BUILD_PATH:-.}" || return 1
 
-    echo "检查 feeds 覆盖结果..."
+    echo "🔍 检查 feeds 覆盖结果..."
 
-    while IFS='|' read -r feed package; do
-        [ -z "$feed" ] && continue
+    local has_error=0
+    while IFS='|' read -r feed package || [ -n "$feed" ]; do
+        # 跳过注释和空行
+        [[ "$feed" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$feed" || -z "$package" ]] && continue
 
-        case "$feed" in
-            \#*) continue ;;
-        esac
+        # 统一去除前后空格
+        feed=$(echo "$feed" | xargs)
+        package=$(echo "$package" | xargs)
 
         local path="package/feeds/$feed/$package"
 
-        if [ -L "$path" ]; then
-            echo "  ✓ $package -> $feed"
+        if [ -L "$path" ] || [ -d "$path" ]; then
+            echo "  ✅ $package -> $feed"
         else
-            echo "  ✗ $package 未正确来自 $feed"
-            return 1
+            echo "  ❌ $package 未正确来自 $feed"
+            has_error=1
         fi
     done < "$config_file"
+
+    return $has_error
 }
 
 # 移除luci-app-mosdns的v2ray-geodata、v2ray-geoip、v2ray-geosite依赖
