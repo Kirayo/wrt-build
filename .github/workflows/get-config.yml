@@ -12,6 +12,7 @@ on:
         options:
           - zn-m2_immwrt
           - zn-m2_libwrt
+          - xiaomi-ax3000t
       mode:
         required: true
         description: Build Mode
