@@ -384,16 +384,9 @@ jobs:
           cp -f manifest.json ./release-files/manifest.json
 
           {
-            echo '# 兆能 `ZN-M2` 无`Wifi` 无`USB`'
+            echo '# 本次构建发布'
             echo
-            echo '### 固件信息'
-            echo
-            echo '管理地址：`192.168.0.1`'
-            echo '密码：`无`'
-            echo
-            echo '校验：`sha256sums`'
-            echo
-            echo "#### 基于各分支最新commit构建："
+            echo '### 设备信息'
             echo
             echo "| 设备 | 源码来源 | 分支 | commit |"
             echo "|---|---|---|---|"
@@ -402,6 +395,12 @@ jobs:
                 | to_entries[]
                 | "| \(.key) | [\(.value.source)](\(.value.source)) | `\(.value.branch)` | `\(.value.short_commit)` |"
             ' manifest.json
+            echo
+            echo '### 固件信息'
+            echo
+            echo '管理地址：`192.168.0.1`'
+            echo '密码：`无`'
+            echo '校验：`sha256sums`'
             echo
           } > description.md
 
