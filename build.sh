@@ -395,45 +395,6 @@ _parse_third_party_feed_names() {
     printf '%s' "$names" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
-# 去除固件中的第三方 feeds（首次开机清理 distfeeds）
-# 一般不需要
-# 用法: setup_remove_third_party_feeds [源码根] [third_party_feeds路径]
-setup_remove_third_party_feeds() {
-    local ROOT="${1:-${BUILD_PATH:-.}}"
-    local conf_file="${2:-${CORE_PATH}/feeds/third_party_feeds}"
-    local feeds name
-
-    ROOT="$(cd "$ROOT" 2>/dev/null && pwd || echo "$ROOT")"
-    feeds=$(_parse_third_party_feed_names "$conf_file")
-
-    if [ -z "$feeds" ]; then
-        echo "[SKIP] 未从 $conf_file 解析到 feed 名"
-        return 0
-    fi
-
-    local script_dir="${ROOT}/files/etc/uci-defaults"
-    local script="${script_dir}/99-remove-third-party-feeds"
-
-    mkdir -p "$script_dir"
-
-    {
-        echo '#!/bin/sh'
-        echo '# 清理固件内第三方 opkg/apk 软件源'
-        echo 'F_OPKG=/etc/opkg/distfeeds.conf'
-        echo 'F_APK=/etc/apk/repositories'
-        echo ''
-        for name in $feeds; do
-            echo "[ -f \"\$F_OPKG\" ] && sed -i '/${name}/d' \"\$F_OPKG\" 2>/dev/null"
-            echo "[ -f \"\$F_APK\" ] && sed -i '/${name}/d' \"\$F_APK\" 2>/dev/null"
-        done
-        echo 'exit 0'
-    } > "$script"
-
-    chmod +x "$script"
-    echo "[OK] 已写入 $script"
-    echo "     将清理 feed: $feeds"
-}
-
 # 在 .config 中关闭 CONFIG_FEED_* 导出
 # 用法: setup_disable_config_feeds [源码根] [third_party_feeds路径]
 setup_disable_config_feeds() {
