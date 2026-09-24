@@ -77,6 +77,119 @@ get_remote_commit() {
         | awk 'NR == 1 { print $1 }'
 }
 
+get_changed_files() {
+    case "${GITHUB_EVENT_NAME:-}" in
+        push)
+            if [ -n "${GITHUB_EVENT_BEFORE:-}" ] && [ "${GITHUB_EVENT_BEFORE:-}" != "0000000000000000000000000000000000000000" ] && git rev-parse --verify "${GITHUB_EVENT_BEFORE}" >/dev/null 2>&1; then
+                git diff --name-only "${GITHUB_EVENT_BEFORE}" "${GITHUB_SHA}"
+            elif [ -n "${GITHUB_SHA:-}" ]; then
+                git diff-tree --no-commit-id --name-only -r "${GITHUB_SHA}"
+            fi
+            ;;
+        pull_request)
+            if [ -n "${GITHUB_BASE_REF:-}" ]; then
+                git fetch --no-tags --depth=1 origin "${GITHUB_BASE_REF}" >/dev/null 2>&1 || true
+            fi
+
+            if [ -n "${GITHUB_BASE_REF:-}" ] && [ -n "${GITHUB_SHA:-}" ] && git rev-parse --verify "origin/${GITHUB_BASE_REF}" >/dev/null 2>&1; then
+                git diff --name-only "origin/${GITHUB_BASE_REF}" "${GITHUB_SHA}"
+            fi
+            ;;
+    esac
+}
+
+device_config_changed() {
+    local changed_files
+    changed_files="$(get_changed_files || true)"
+
+    if [ -z "$changed_files" ]; then
+        return 1
+    fi
+
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        case "$path" in
+            core/compilecfg/*.ini|core/deconfig/*.config|core/deconfig/fragments/*.config)
+                return 0
+                ;;
+        esac
+    done <<< "$changed_files"
+
+    return 1
+}
+
+filter_ini_files_by_changed_config() {
+    local changed_files
+    changed_files="$(get_changed_files || true)"
+
+    if [ -z "$changed_files" ]; then
+        return 1
+    fi
+
+    declare -A changed_devices=()
+    declare -A fragment_devices=()
+
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+
+        case "$path" in
+            core/compilecfg/*.ini)
+                local device_name
+                device_name="$(basename "$path" .ini)"
+                changed_devices["$device_name"]=1
+                ;;
+            core/deconfig/*.config)
+                local device_name
+                device_name="$(basename "$path" .config)"
+                changed_devices["$device_name"]=1
+                ;;
+            core/deconfig/fragments/*.config)
+                local fragment_name
+                fragment_name="$(basename "$path" .config)"
+                fragment_devices["$fragment_name"]=1
+                ;;
+        esac
+    done <<< "$changed_files"
+
+    if [ "${#changed_devices[@]}" -eq 0 ] && [ "${#fragment_devices[@]}" -eq 0 ]; then
+        return 1
+    fi
+
+    local -a filtered_files=()
+    local ini_file
+    local device_name
+    local fragments
+
+    for ini_file in "${INI_FILES[@]}"; do
+        device_name="$(basename "$ini_file" .ini)"
+        if [ -n "${changed_devices[$device_name]:-}" ]; then
+            filtered_files+=("$ini_file")
+            continue
+        fi
+
+        fragments="$(read_ini_by_key "$ini_file" "CONFIG_FRAGMENTS" || true)"
+        if [ -n "$fragments" ]; then
+            IFS=',' read -ra fragment_list <<< "$fragments"
+            local fragment_name
+            for fragment_name in "${fragment_list[@]}"; do
+                fragment_name="${fragment_name//[[:space:]]/}"
+                if [ -n "${fragment_devices[$fragment_name]:-}" ]; then
+                    filtered_files+=("$ini_file")
+                    break
+                fi
+            done
+        fi
+    done
+
+    if [ "${#filtered_files[@]}" -eq 0 ]; then
+        INI_FILES=()
+        return 1
+    fi
+
+    INI_FILES=("${filtered_files[@]}")
+    return 0
+}
+
 # ==============================
 # Manifest cache
 # ==============================
@@ -179,6 +292,33 @@ shopt -u nullglob
 if [ "${#INI_FILES[@]}" -eq 0 ]; then
     echo "Error: no device configuration found in $COMPILECFG_DIR" >&2
     exit 1
+fi
+
+# 只有在机型配置文件发生变更时，才限制矩阵到对应机型
+if [ "${GITHUB_EVENT_NAME:-}" = "push" ] || [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
+    if device_config_changed; then
+        echo "Device config changed; filtering build matrix to changed models only."
+        if ! filter_ini_files_by_changed_config; then
+            echo "No matching device config after filtering; skipping build."
+            MATRIX='{"include":[{"model":"_none","source":"none","branch":"none","commit":"none","short_commit":"none","build_dir":"none"}]}'
+            HAS_UPDATES="false"
+            echo "Has updates : $HAS_UPDATES"
+            echo "Matrix:"
+            echo "$MATRIX" | jq .
+
+            if [ -n "${GITHUB_OUTPUT:-}" ]; then
+                {
+                    echo "matrix<<EOF"
+                    echo "$MATRIX"
+                    echo "EOF"
+                    echo "has_updates=$HAS_UPDATES"
+                } >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+        fi
+    else
+        echo "Non-device files changed; keeping full build matrix."
+    fi
 fi
 
 # 只有非 FORCE 才加载历史记录

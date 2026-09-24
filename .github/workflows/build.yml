@@ -19,9 +19,18 @@ on:
 
   push:
     paths:
-      - "core/compilecfg/**"
-      - "core/deconfig/**"
-      - "!core/deconfig/fragments/**"
+      - "core/compilecfg/*.ini"
+      - "core/deconfig/*.config"
+      - "core/deconfig/fragments/**"
+      - "core/feeds/**"
+      - "core/scripts/**"
+      - "build.sh"
+
+  pull_request:
+    paths:
+      - "core/compilecfg/*.ini"
+      - "core/deconfig/*.config"
+      - "core/deconfig/fragments/**"
       - "core/feeds/**"
       - "core/scripts/**"
       - "build.sh"
