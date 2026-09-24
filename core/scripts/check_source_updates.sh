@@ -15,6 +15,7 @@ COMPILECFG_DIR="$CORE_PATH/compilecfg"
 # ==============================
 FORCE="${FORCE:-false}"
 MANIFEST_CACHE='[]'          # 全局初始化
+declare -A BUILD_REASONS=()
 # 获取的最大Release数量
 MAX_RELEASES=60
 MAX_PARALLEL_DOWNLOADS=8   # 可根据情况调整，建议 4~10
@@ -118,6 +119,105 @@ device_config_changed() {
     return 1
 }
 
+global_build_change_reason() {
+    local changed_files
+    local path
+    changed_files="$(get_changed_files || true)"
+
+    if [ -z "$changed_files" ]; then
+        return 1
+    fi
+
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        case "$path" in
+            build.sh|core/scripts/*)
+                printf '%s\n' "global build script changed: ${path}"
+                return 0
+                ;;
+        esac
+    done <<< "$changed_files"
+
+    return 1
+}
+
+normalized_name() {
+    local value
+    value="${1,,}"
+    value="${value//[^a-z0-9._-]/}"
+    printf '%s' "$value"
+}
+
+config_package_names_for_device() {
+    local config_file="$1"
+    local line
+    local pkg_name
+
+    while IFS= read -r line; do
+        line="${line%$'\r'}"
+        case "$line" in
+            CONFIG_PACKAGE_*)
+                pkg_name="${line#CONFIG_PACKAGE_}"
+                pkg_name="${pkg_name%%=*}"
+                pkg_name="$(normalized_name "$pkg_name")"
+                if [ -n "$pkg_name" ]; then
+                    printf '%s\n' "$pkg_name"
+                fi
+                ;;
+        esac
+    done < "$config_file"
+}
+
+feed_change_matches_device() {
+    local feed_file="$1"
+    local device_cfg="$2"
+    local device_name
+    local candidate
+    local pkg_name
+    local direct_match=0
+
+    device_name="$(basename "$device_cfg" .config)"
+
+    if [ ! -f "$feed_file" ] || [ ! -f "$device_cfg" ]; then
+        return 1
+    fi
+
+    while IFS= read -r pkg_name; do
+        [ -n "$pkg_name" ] || continue
+
+        while IFS= read -r candidate; do
+            [ -n "$candidate" ] || continue
+            candidate="$(normalized_name "$candidate")"
+
+            if [[ "$pkg_name" == *"$candidate"* ]] || [[ "$candidate" == *"$pkg_name"* ]]; then
+                printf '%s\n' "feed package '${pkg_name}' matched candidate '${candidate}' in ${feed_file}"
+                direct_match=1
+                break
+            fi
+        done < <(tr 'A-Z' 'a-z' < "$feed_file" | grep -Eo 'luci-app-[a-z0-9._-]+|[a-z0-9._-]+-app-[a-z0-9._-]+|[a-z0-9._-]+-(config|theme|filter|dns)[a-z0-9._-]*' | sort -u)
+
+        if [ "$direct_match" -eq 1 ]; then
+            return 0
+        fi
+    done < <(config_package_names_for_device "$device_cfg")
+
+    return 1
+}
+
+record_build_reason() {
+    local device_name="$1"
+    local reason="$2"
+
+    [ -n "$device_name" ] || return 0
+    [ -n "$reason" ] || return 0
+
+    if [ -n "${BUILD_REASONS[$device_name]:-}" ]; then
+        BUILD_REASONS["$device_name"]+="; ${reason}"
+    else
+        BUILD_REASONS["$device_name"]="$reason"
+    fi
+}
+
 filter_ini_files_by_changed_config() {
     local changed_files
     changed_files="$(get_changed_files || true)"
@@ -128,6 +228,7 @@ filter_ini_files_by_changed_config() {
 
     declare -A changed_devices=()
     declare -A fragment_devices=()
+    declare -A feed_devices=()
 
     while IFS= read -r path; do
         [ -n "$path" ] || continue
@@ -148,10 +249,25 @@ filter_ini_files_by_changed_config() {
                 fragment_name="$(basename "$path" .config)"
                 fragment_devices["$fragment_name"]=1
                 ;;
+            core/feeds/*)
+                local feed_path
+                feed_path="${ROOT_PATH}/${path}"
+                if [ -f "$feed_path" ]; then
+                    for config_file in "$CORE_PATH"/deconfig/*.config; do
+                        feed_reason="$(feed_change_matches_device "$feed_path" "$config_file" 2>/dev/null || true)"
+                        if [ -n "$feed_reason" ]; then
+                            local device_name
+                            device_name="$(basename "$config_file" .config)"
+                            feed_devices["$device_name"]=1
+                            record_build_reason "$device_name" "changed feed package: ${feed_reason}"
+                        fi
+                    done
+                fi
+                ;;
         esac
     done <<< "$changed_files"
 
-    if [ "${#changed_devices[@]}" -eq 0 ] && [ "${#fragment_devices[@]}" -eq 0 ]; then
+    if [ "${#changed_devices[@]}" -eq 0 ] && [ "${#fragment_devices[@]}" -eq 0 ] && [ "${#feed_devices[@]}" -eq 0 ]; then
         return 1
     fi
 
@@ -162,8 +278,17 @@ filter_ini_files_by_changed_config() {
 
     for ini_file in "${INI_FILES[@]}"; do
         device_name="$(basename "$ini_file" .ini)"
+
         if [ -n "${changed_devices[$device_name]:-}" ]; then
             filtered_files+=("$ini_file")
+            record_build_reason "$device_name" "changed device config file: core/compilecfg/${device_name}.ini or core/deconfig/${device_name}.config"
+            echo "Trigger: $device_name -> matches changed device config"
+            continue
+        fi
+
+        if [ -n "${feed_devices[$device_name]:-}" ]; then
+            filtered_files+=("$ini_file")
+            echo "Trigger: $device_name -> matches changed feed package"
             continue
         fi
 
@@ -175,6 +300,8 @@ filter_ini_files_by_changed_config() {
                 fragment_name="${fragment_name//[[:space:]]/}"
                 if [ -n "${fragment_devices[$fragment_name]:-}" ]; then
                     filtered_files+=("$ini_file")
+                    record_build_reason "$device_name" "CONFIG_FRAGMENTS includes changed fragment: ${fragment_name}"
+                    echo "Trigger: $device_name -> matches changed fragment ${fragment_name}"
                     break
                 fi
             done
@@ -184,6 +311,18 @@ filter_ini_files_by_changed_config() {
     if [ "${#filtered_files[@]}" -eq 0 ]; then
         INI_FILES=()
         return 1
+    fi
+
+    echo
+    echo "================================"
+    echo " Trigger Summary"
+    echo "================================"
+    if [ "${#BUILD_REASONS[@]}" -gt 0 ]; then
+        for device_name in "${!BUILD_REASONS[@]}"; do
+            echo "[$device_name] ${BUILD_REASONS[$device_name]}"
+        done
+    else
+        echo "No explicit build trigger reason recorded."
     fi
 
     INI_FILES=("${filtered_files[@]}")
@@ -295,6 +434,7 @@ if [ "${#INI_FILES[@]}" -eq 0 ]; then
 fi
 
 # 只有在机型配置文件发生变更时，才限制矩阵到对应机型
+GLOBAL_CHANGE_REASON=""
 if [ "${GITHUB_EVENT_NAME:-}" = "push" ] || [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
     if device_config_changed; then
         echo "Device config changed; filtering build matrix to changed models only."
@@ -317,7 +457,17 @@ if [ "${GITHUB_EVENT_NAME:-}" = "push" ] || [ "${GITHUB_EVENT_NAME:-}" = "pull_r
             exit 0
         fi
     else
-        echo "Non-device files changed; keeping full build matrix."
+        GLOBAL_CHANGE_REASON="$(global_build_change_reason || true)"
+        if [ -n "$GLOBAL_CHANGE_REASON" ]; then
+            echo "Global build script changed; keeping full build matrix."
+            echo "Reason: $GLOBAL_CHANGE_REASON"
+            for ini_file in "${INI_FILES[@]}"; do
+                device="$(basename "$ini_file" .ini)"
+                record_build_reason "$device" "$GLOBAL_CHANGE_REASON"
+            done
+        else
+            echo "Non-device files changed; keeping full build matrix."
+        fi
     fi
 fi
 
@@ -380,6 +530,7 @@ for ini_file in "${INI_FILES[@]}"; do
     echo "  Branch     : $repo_branch"
     echo "  Commit     : $short_commit"
     echo "  Build dir  : $build_dir"
+    echo "  Reason     : ${BUILD_REASONS[$device]:-normal upstream check (no change-based trigger)}"
 
     if [ "$FORCE" != "true" ] && already_built "$device" "$commit"; then
         echo "  Status     : already built"
