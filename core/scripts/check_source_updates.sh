@@ -218,6 +218,35 @@ record_build_reason() {
     fi
 }
 
+print_changed_files_summary() {
+    local changed_files
+    changed_files="$(get_changed_files || true)"
+    local count=0
+
+    echo
+    echo "================================"
+    echo " Change Detection Summary"
+    echo "================================"
+    echo "Event       : ${GITHUB_EVENT_NAME:-unknown}"
+    echo "Ref         : ${GITHUB_REF:-unknown}"
+    echo "Force       : ${FORCE}"
+
+    if [ -n "$changed_files" ]; then
+        while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            count=$((count + 1))
+        done <<< "$changed_files"
+        echo "Changed     : ${count} file(s)"
+        echo "Files:"
+        printf '%s\n' "$changed_files"
+    else
+        echo "Changed     : 0 file(s)"
+        echo "Files:"
+        echo "(none)"
+    fi
+    echo "================================"
+}
+
 filter_ini_files_by_changed_config() {
     local changed_files
     changed_files="$(get_changed_files || true)"
@@ -436,6 +465,7 @@ fi
 # 只有在机型配置文件发生变更时，才限制矩阵到对应机型
 GLOBAL_CHANGE_REASON=""
 if [ "${GITHUB_EVENT_NAME:-}" = "push" ] || [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
+    print_changed_files_summary
     if device_config_changed; then
         echo "Device config changed; filtering build matrix to changed models only."
         if ! filter_ini_files_by_changed_config; then
@@ -467,6 +497,7 @@ if [ "${GITHUB_EVENT_NAME:-}" = "push" ] || [ "${GITHUB_EVENT_NAME:-}" = "pull_r
             done
         else
             echo "Non-device files changed; keeping full build matrix."
+            echo "Final action: full build matrix (no matching device/fragment/feed trigger)"
         fi
     fi
 fi
